@@ -757,7 +757,6 @@
                 <div class="card" style="position: sticky; top: 75px;">
                     <div class="card-header">
                         <span>即時通報動態</span>
-                        <span style="font-size: 0.75rem; color: var(--status-green); font-weight: 800;"/span>
                     </div>
                     <ul class="event-list" id="eventStreamContainer"></ul>
                 </div>
@@ -770,9 +769,11 @@
     <div class="toast-notification" id="toast"></div>
 
     <script>
+        // 設定 Discord Webhook 連結[cite: 4]
+        const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1537053570568814616/xBAfVB68QGuWjr4kGoSG05xkHkzUxSbbjc-eW8UCssXfImgua-rwJst-jcupDbtpu3C7";
+
         let isAdminLoggedIn = false;
 
-        // 將所有庭別預設為 visible: false，確保載入時平面圖是空的
         let courtsData = [
             { id: "CT-DET-01", name: "第一偵查庭 (2F)", status: "green", statusText: "", officer: "", time: "", visible: false },
             { id: "CT-DET-02", name: "第二偵查庭 (2F)", status: "green", statusText: "", officer: "", time: "", visible: false },
@@ -781,16 +782,13 @@
             { id: "CT-CRI-01", name: "刑事第一法庭 (3F)", status: "green", statusText: "", officer: "", time: "", visible: false }
         ];
 
-        // 預設流水帳也先清空
         let eventLogs = [];
 
-        // 取得當前輸入的法警姓名/警號
         function getCurrentOfficerName() {
             const inputVal = document.getElementById('pdaOfficerInput').value.trim();
             return inputVal !== '' ? inputVal : '未具名法警';
         }
 
-        // 時時動態引擎
         function updateClock() {
             const now = new Date();
             document.getElementById('systemClock').innerText = now.toTimeString().split(' ')[0];
@@ -804,7 +802,6 @@
                 }
             }, 1000);
 
-            // 背景自動巡查心跳 (只對已經 active / visible 的庭別進行輪詢)
             setInterval(() => {
                 const visibleCourts = courtsData.filter(c => c.visible);
                 if (visibleCourts.length === 0) return;
@@ -830,7 +827,36 @@
             }, 25000);
         }
 
-        // PDA 下拉選單同步更新 (含防呆及目前選取項保留)
+        // 傳送即時記錄至 Discord Webhook 函數
+        async function sendToDiscord(title, description, color, courtName, officer, time) {
+            if (!DISCORD_WEBHOOK_URL) return;
+
+            const payload = {
+                embeds: [{
+                    title: `⚖️ 法警通報系統 | ${title}`,
+                    description: description,
+                    color: color, // 十進位顏色代碼
+                    fields: [
+                        { name: "📍 庭別地點", value: courtName, inline: true },
+                        { name: "👮 執勤法警", value: officer, inline: true },
+                        { name: "🕒 通報時間", value: time, inline: true }
+                    ],
+                    footer: { text: "CourtsGuard System Pro 即時安全指揮系統" },
+                    timestamp: new Date().toISOString()
+                }]
+            };
+
+            try {
+                await fetch(DISCORD_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } catch (error) {
+                console.error("Discord Webhook 傳送失敗:", error);
+            }
+        }
+
         function updatePdaSelectOptions() {
             const pdaSelect = document.getElementById('pdaCourtSelect');
             if (!pdaSelect) return;
@@ -850,7 +876,6 @@
             }
         }
 
-        // 動態更新警力派遣下拉選單 (永遠顯示完整庭別清單)
         function updateDispatchSelects() {
             const selects = ['dispatchSelect1', 'dispatchSelect2'];
             selects.forEach(id => {
@@ -859,7 +884,6 @@
                 const currentVal = select.value;
                 select.innerHTML = '';
                 
-                // 這裡不管庭別是否 visible，全部都納入派遣選單
                 courtsData.forEach(court => {
                     const opt = document.createElement('option');
                     opt.value = court.name;
@@ -873,26 +897,23 @@
             });
         }
 
-        // 隱藏/刪除庭別功能
         function deleteCourt(courtId) {
             const target = courtsData.find(c => c.id === courtId);
             if (!target) return;
 
             if (confirm(`確定要從平面圖隱藏「${target.name}」的動態監控卡片嗎？`)) {
-                target.visible = false; // 改為設為隱藏，確保下拉選單資料不遺失
+                target.visible = false;
                 renderAdminDashboard();
                 showToast(`已隱藏 ${target.name} 之動態卡片`);
             }
         }
 
-        // 刪除稽核紀錄功能
         function deleteAuditLog(logId) {
             eventLogs = eventLogs.filter(l => l.id !== logId);
             renderAdminDashboard();
             showToast("已刪除該筆稽核紀錄");
         }
 
-        // 視圖切換
         function switchView(viewName) {
             if (viewName === 'admin' && !isAdminLoggedIn) {
                 document.getElementById('loginModal').classList.add('active');
@@ -934,7 +955,7 @@
             showToast("已登出勤指中心");
         }
 
-        // PDA 簽到與通報
+        // PDA 簽到與通報 (已內建 Discord Webhook 連結)
         function submitNormalCheckin() {
             const courtId = document.getElementById('pdaCourtSelect').value;
             if (!courtId) {
@@ -951,7 +972,7 @@
             courtObj.statusText = '正常開庭中';
             courtObj.officer = currentOfficer;
             courtObj.time = nowTime;
-            courtObj.visible = true; // 簽到後顯示於 Dashboard 平面圖
+            courtObj.visible = true;
 
             eventLogs.unshift({
                 id: Date.now(),
@@ -962,6 +983,9 @@
                 statusLabel: '正常簽到',
                 desc: '完成全庭安全巡查簽到，現場秩序正常。'
             });
+
+            // 呼叫 Discord Webhook 傳送正常簽到紀錄 (綠色: 1424689)
+            sendToDiscord("全庭巡查正常", "完成全庭安全巡查簽到，現場秩序正常。", 1424689, courtObj.name, currentOfficer, nowTime);
 
             showToast(`${courtObj.name} 已由 ${currentOfficer} 完成簽到`);
             if (isAdminLoggedIn) renderAdminDashboard();
@@ -984,20 +1008,25 @@
             const nowTime = getFormattedTime();
             let statusLabel = '黃色警戒';
             let statusText = `黃色警戒：${category}`;
+            let embedColor = 16761035; // 黃色
 
             if (level === 'orange') {
                 statusLabel = '橙色警戒';
                 statusText = `橙色警戒：${category}`;
+                embedColor = 16733440; // 橙色
             } else if (level === 'red') {
                 statusLabel = '紅色警報';
                 statusText = `紅色警報：${category}`;
+                embedColor = 12131348; // 紅色
             }
 
             courtObj.status = level;
             courtObj.statusText = statusText;
             courtObj.officer = currentOfficer;
             courtObj.time = nowTime;
-            courtObj.visible = true; // 通報後顯示於 Dashboard 平面圖
+            courtObj.visible = true;
+
+            const fullDesc = note ? `${category} - ${note}` : category;
 
             eventLogs.unshift({
                 id: Date.now(),
@@ -1006,8 +1035,11 @@
                 officer: currentOfficer,
                 status: level,
                 statusLabel: statusLabel,
-                desc: note ? `${category} - ${note}` : category
+                desc: fullDesc
             });
+
+            // 呼叫 Discord Webhook 傳送異狀通報
+            sendToDiscord(`【${statusLabel}】回報`, fullDesc, embedColor, courtObj.name, currentOfficer, nowTime);
 
             showToast(`已由 ${currentOfficer} 傳送 ${courtObj.name} 異狀通報`);
             document.getElementById('pdaNote').value = '';
@@ -1025,7 +1057,6 @@
             }
         }
 
-        // 警力派遣功能 (暫不加入 eventLogs 紀錄)
         function dispatchUnit(unitName, targetCourt) {
             if (!targetCourt) {
                 showToast("請先選擇要支援的法庭或偵查庭！");
@@ -1034,7 +1065,6 @@
             showToast(`已調派【${unitName}】前往 ${targetCourt}`);
         }
 
-        // CSV 匯出
         function exportAuditLogToCSV() {
             let csvRows = [];
             csvRows.push(["通報時間", "庭別地點", "巡查法警", "警戒等級", "異狀及處置紀錄"].join(","));
@@ -1063,9 +1093,7 @@
             showToast("已匯出 CSV 檔案");
         }
 
-        // 渲染 Dashboard
         function renderAdminDashboard() {
-            // 狀態計算只算已顯示的庭別
             const visibleCourts = courtsData.filter(c => c.visible);
             const normalCount = visibleCourts.filter(c => c.status === 'green').length;
             const yellowCount = visibleCourts.filter(c => c.status === 'yellow' || c.status === 'orange').length;
@@ -1075,7 +1103,6 @@
             document.getElementById('stat-yellow-count').innerText = yellowCount;
             document.getElementById('stat-red-count').innerText = redCount;
 
-            // 平面圖卡片渲染
             const gridContainer = document.getElementById('courtGridContainer');
             gridContainer.innerHTML = '';
             
@@ -1096,10 +1123,8 @@
                 });
             }
 
-            // 更新警力派遣選單
             updateDispatchSelects();
 
-            // 稽核表格渲染
             const tableBody = document.getElementById('auditTableBody');
             tableBody.innerHTML = '';
             
@@ -1120,7 +1145,6 @@
                 });
             }
 
-            // 動態流水帳
             const streamContainer = document.getElementById('eventStreamContainer');
             streamContainer.innerHTML = '';
             if (eventLogs.length === 0) {
